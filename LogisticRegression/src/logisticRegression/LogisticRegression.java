@@ -296,7 +296,7 @@ public class LogisticRegression {
 	public static void main(String[] args) {
 		
 		if (args.length != 2){
-			System.out.println("Wrong command: there should be 2 parameters: path to the input file and training algorithm (1-SGD, 2-IRLS.");
+			System.out.println("Wrong command: there should be 2 parameters: path to the input file and training algorithm (SGD or IRLS)");
 			return;
 		}
 		
