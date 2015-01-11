@@ -141,7 +141,9 @@ public class DataSet {
 				fileWriter.write(",");
 				fileWriter.write(Integer.toString(Y[i]));
 				fileWriter.write(",");
-				for (int j=0; j<X[i].length; j++) {
+				
+				// Skip first column as it is the bias
+				for (int j=1; j<X[i].length; j++) {
 					fileWriter.write(df.format(X[i][j]));
 					
 					if(j<X[i].length-1)
@@ -191,7 +193,9 @@ public class DataSet {
 				fileWriter.write(",");
 				fileWriter.write(Integer.toString(Y[i]));
 				fileWriter.write(",");
-				for (int j=0; j<X[i].length; j++) {
+				
+				// Skip first column as it is the bias
+				for (int j=1; j<X[i].length; j++) {
 					fileWriter.write(df.format(X[i][j]));
 					fileWriter.write(",");
 				}

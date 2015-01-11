@@ -66,53 +66,16 @@ public class LogisticRegression {
 		SimpleMatrix p = new SimpleMatrix(N,1);				// Predictions
 		SimpleMatrix beta_new = new SimpleMatrix(K,1);		// Weights
 		SimpleMatrix beta_old = new SimpleMatrix(K,1);		// Weights from the previous iteration
+		DenseMatrix64F HH_inv = new DenseMatrix64F(K,K);	// Inverted Hessian 
 		
-		LinearSolver<DenseMatrix64F> solver;
+		LinearSolver<DenseMatrix64F> solver = LinearSolverFactory.pseudoInverse(true);
+		//LinearSolver<DenseMatrix64F> solver = LinearSolverFactory.leastSquaresQrPivot(true,false);
 		
 		// Initialize y
 		for (int i = 0; i < N; i++)
 			y.set(i, 0, YY[i]);
 	
-		
-		//////////////////////////////////////////////////
-		//
-		// DEBUG ONLY !!!
-		//
-		//////////////////////////////////////////////////
-		X.printDimensions();
-		Xt.printDimensions();
-		W.printDimensions();
-		y.printDimensions();
-		beta_new.printDimensions();
-		beta_old.printDimensions();
-		
-		//SimpleMatrix TMP = X.extractMatrix(0, 17, 0, 17);
-		//TMP.print();
-		//TMP.invert().print();
-		
-		SimpleMatrix a = new SimpleMatrix(3,3);
-		a.set(0,0,1);
-		a.set(0,1,2);
-		a.set(0,2,3);
-		a.set(1,0,4);
-		a.set(1,1,5);
-		a.set(1,2,6);
-		a.set(2,0,7);
-		a.set(2,1,8);
-		a.set(2,2,9);
-		
-		a.print();
-		a.invert().print();
-		
-//		DenseMatrix64F aa = new DenseMatrix64F(3,3);
-//		solver = LinearSolverFactory.leastSquaresQrPivot(true,false);
-//		if( !solver.setA(a.getMatrix()) ) throw new RuntimeException("Invert failed");
-//        solver.invert(aa);
-//        aa.print();
-		
-		//////////////////////////////////////////////////
-		//////////////////////////////////////////////////
-		
+		// Iterate until maxIterations or the STOP condition is met
 		for (int n=0; n<maxIterations; n++) {
 			likelihood = 0.0;
 			
@@ -128,50 +91,36 @@ public class LogisticRegression {
 				W.set(i, i, yPredicted*(1-yPredicted) );
 			}
 			
-/*			X.print();
-			Xt.print();
-			y.print();
-			beta_new.print();
-			beta_old.print();
-			p.print();*/
-			
-			// Update weights according to the equation: beta_new = beta_old - ((Xt*W*X)^(-1))*Xt*(y-p)
-			//Xt.mult(W).mult(X).invert().print();
-			//beta_new = beta_old.minus(Xt.mult(W).mult(X).invert().mult(Xt).mult(y.minus(p)));
-			//Xt.mult(W).print();
-			//W.print();
-			
-			// SimpleMatrix H = Xt.mult(W).mult(X);
-			//H.print();
-			DenseMatrix64F HH_inv = new DenseMatrix64F(K,K);
-			
-			solver = LinearSolverFactory.pseudoInverse(true);
-			//solver = LinearSolverFactory.leastSquaresQrPivot(true,false);
-			if( !solver.setA(Xt.mult(W).mult(X).getMatrix()) ) throw new RuntimeException("Invert failed");
+			// Update weights according to the equation: beta_new = beta_old + ((Xt*W*X)^(-1))*Xt*(y-p)
+			// First compute Hessian and try to invert it using pseudoInverse solver (can also invert a matrix close to singular)
+			if(!solver.setA(Xt.mult(W).mult(X).getMatrix()) ) throw new RuntimeException("Invert failed");
 	        solver.invert(HH_inv);
-	        //HH_inv.print();
 	        SimpleMatrix H_inv = new SimpleMatrix(HH_inv);
 
+	        // Compute beta_new (weights)
 	        beta_new.set( beta_old.plus(H_inv.mult(Xt).mult(y.minus(p))) );
-	        //beta_new.transpose().print();
-	        //y.minus(p).print();
 			
 			// Update weights based on beta_new
 			for (int j=0; j<K; j++) {
 				weights[j] = beta_new.get(j, 0);
-				System.out.print(weights[j] + " , ");
 			}
-			System.out.println();
-						
+			
+			// Compute log-likelihood
 			for (int i=0; i<XX.length; i++) {
-				likelihood += YY[i] * Math.log(computePrediction(XX[i])) + (1-YY[i]) * Math.log(1- computePrediction(XX[i]));			
+				double tmp = computePrediction(XX[i]);
+				if (tmp == 0.0) 
+					tmp = 0.000000001;
+				else if (tmp == 1.0)
+					tmp = 0.999999999;
+				likelihood += YY[i] * Math.log(tmp) + (1-YY[i]) * Math.log(1- tmp);			
 			}
-			System.out.println("Iteration " + n + ": log likelihood = " + likelihood);
+			System.out.println(" Iteration " + n + ": log likelihood = " + likelihood);
 	
+			// Check STOP criteria
 			maxWeightDev = 0.0;
 			for (int j=0; j<weights.length; j++) {
-				if(Math.abs(weights[j] - weightsPrev[j]) > maxWeightDev) {
-					maxWeightDev = Math.abs(weights[j] - weightsPrev[j]);
+				if((Math.abs(weights[j] - weightsPrev[j])/(Math.abs(weightsPrev[j]) + 0.01*minDelta)) > maxWeightDev) {
+					maxWeightDev = (Math.abs(weights[j] - weightsPrev[j])/(Math.abs(weightsPrev[j]) + 0.01*minDelta));
 				}
 			}
 			if(maxWeightDev < minDelta) {
@@ -184,35 +133,39 @@ public class LogisticRegression {
 	}
 	
 	/** Training function 
-	 * Use stochastic gradient descent 
+	 * Use Stochastic Gradient Descent 
 	 * */
 	public void trainModelWithSGD(double[][] X, int[] Y) {
 		double likelihood = 0.0;
 		double[] weightsPrev = new double[weights.length];
 		double maxWeightDev = 0.0;
 		
+		// Iterate until maxIterations or the STOP condition is met
 		for (int n=0; n<maxIterations; n++) {
-			if ((n%5000) == 0)
-				System.out.println(" iteration " + n + "...");
 			likelihood = 0.0;
+			
+			// Store previous weights
 			for (int j=0; j<weights.length; j++) weightsPrev[j] = weights[j];
 			
+			// Update weights
 			for (int i=0; i<X.length; i++) {
 				double yPredicted = computePrediction(X[i]);
 							
 				for (int j=0; j<weights.length; j++) {
 					weights[j] = weights[j] + learningRate * (Y[i] - yPredicted) * X[i][j];
 				}
-				// Compute log likelihood (purpose: only debugging and monitoring progress)
+				// Compute log-likelihood
 				likelihood += Y[i] * Math.log(computePrediction(X[i])) + (1-Y[i]) * Math.log(1- computePrediction(X[i]));
 				
 			}
-			//System.out.println("iteration " + n + ": log likelihood = " + likelihood);
+			if (n%5000 == 0)
+				System.out.println("Iteration " + n + ": log likelihood = " + likelihood);
 			
+			// Check STOP criteria
 			maxWeightDev = 0.0;
 			for (int j=0; j<weights.length; j++) {
-				if(Math.abs(weights[j] - weightsPrev[j]) > maxWeightDev) {
-					maxWeightDev = Math.abs(weights[j] - weightsPrev[j]);
+				if((Math.abs(weights[j] - weightsPrev[j])/(Math.abs(weightsPrev[j]) + 0.01*minDelta)) > maxWeightDev) {
+					maxWeightDev = (Math.abs(weights[j] - weightsPrev[j])/(Math.abs(weightsPrev[j]) + 0.01*minDelta));
 				}
 			}
 			if(maxWeightDev < minDelta) {
@@ -320,10 +273,30 @@ public class LogisticRegression {
 		}
 	}
 	
+	/** Set maxIterations */
+	public void setMaxIterations(int maxIterations) {
+		this.maxIterations = maxIterations;
+	}
+	
+	/** Set learning rate */
+	public void setLearningRate(double learningRate) {
+		this.learningRate = learningRate;
+	}
+	
+	/** Set minimum change of the weights (STOP criteria) */
+	public void setMinDelta(double minDelta) {
+		this.minDelta = minDelta;
+	}
+	
+	/** Set classification cut off */
+	public void setCutOff(double cutOff) {
+		this.cutOff = cutOff;
+	}
+	
 	public static void main(String[] args) {
 		
-		if (args.length != 1){
-			System.out.println("Wrong command: there should be one and only one parameter: path to the input file.");
+		if (args.length != 2){
+			System.out.println("Wrong command: there should be 2 parameters: path to the input file and training algorithm (1-SGD, 2-IRLS.");
 			return;
 		}
 		
@@ -335,7 +308,7 @@ public class LogisticRegression {
         
         // Optimization parameters
         double learningRate = 0.0001; 	// Learning rate
-        int maxIterations = 10000;		// Maximum number of iterations
+        int maxIterations = 100000;		// Maximum number of iterations
         double minDelta = 0.0001;		// Minimum change of the weights (STOP criteria)
     	double cutOff = 0.5;			// Classification cut off 
         
@@ -362,10 +335,23 @@ public class LogisticRegression {
         logistic.standardize(X);
         System.out.println(" DONE.");
         
-        // Train model with Stochastic Gradient Descent 
-        System.out.println("Training model...");
-        //logistic.trainModelWithSGD(X, Y);
-        logistic.trainModelWithIRLS(X, Y);
+        // Train model 
+        switch(args[1]){
+        	case("SGD"):
+        		System.out.println("Training model with Stochastic Gradient Descent");
+    			logistic.trainModelWithSGD(X, Y);
+        		break;
+        		
+        	case("IRLS"):
+        		logistic.setMaxIterations(15);	// this is usually enough for this method...
+    			System.out.println("Training model with Newton-Raphson and Iterative Reweighted Least Squares");
+    			logistic.trainModelWithIRLS(X, Y);
+        	break;
+        	
+        	default:
+        		System.out.println("Training model with Stochastic Gradient Descent");
+        		logistic.trainModelWithSGD(X, Y);
+        }
         System.out.println("Training DONE.");
         System.out.println();
         
